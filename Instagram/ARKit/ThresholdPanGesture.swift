@@ -16,7 +16,7 @@ class ThresholdPanGesture: UIPanGestureRecognizer {
     private(set) var isThresholdExceeded = false
     
     /// Observe when the gesture's `state` changes to reset the threshold.添加一个观察者属性，手势结束时将isThresholdExceeded设为假
-    override var state: UIGestureRecognizerState {
+    override var state: UIGestureRecognizer.State {
         didSet {
             switch state {
             case .began, .changed:

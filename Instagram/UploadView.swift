@@ -31,14 +31,16 @@ class UploadView: UIView,UITextViewDelegate {
         }
         return nil
     }
-    func textViewDidChange(_ textView: UITextView) {
-        print("文字改变了！\(textView.text!)")
-        let text = textView.text!
-        if(!text.isEmpty){
-            self.publishBtn.isEnabled = true
-        }else{
-            self.publishBtn.isEnabled = false
-        }
+    func textViewDidChange(_ textView: UITextView) { publishBtn.isEnabled = true }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let side = max(80, min(bounds.width - 32, bounds.height - 150))
+        picImg.frame = CGRect(x: (bounds.width - side) / 2, y: 16, width: side, height: side)
+        picImg.contentMode = .scaleAspectFit
+        titleTxt.frame = CGRect(x: 16, y: side + 28, width: bounds.width - 88, height: max(60, bounds.height - side - 44))
+        publishBtn.frame = CGRect(x: bounds.width - 64, y: bounds.height - 64, width: 48, height: 48)
+        saveBtn.frame = publishBtn.frame
+        removeBtn.frame = CGRect(x: 20, y: 20, width: 36, height: 36)
     }
     func offlineMode(){
         self.publishBtn.isHidden = true

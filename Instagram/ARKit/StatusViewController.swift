@@ -154,6 +154,10 @@ extension ARCamera.TrackingState {
             return "追踪受限\n细节过低"
         case .limited(.initializing):
             return "初始化中"
+        case .limited(.relocalizing):
+            return "正在重新定位"
+        default:
+            return "追踪暂不可用"
         }
     }
     

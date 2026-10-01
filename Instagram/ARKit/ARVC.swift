@@ -10,7 +10,7 @@ import UIKit
 import SceneKit
 import ARKit
 import EFColorPicker
-import AVOSCloud
+import RealmSwift
 import SVProgressHUD
 //import ARCL
 //import CoreLocation
@@ -30,7 +30,7 @@ class ARVC: UIViewController, ARSCNViewDelegate,UIPopoverPresentationControllerD
     var focusSquare = FocusSquare()//找寻平面用的方块
     /// 用来显示状态的文字
     lazy var statusViewController: StatusViewController = {
-        return childViewControllers.lazy.flatMap({ $0 as? StatusViewController }).first!
+        return children.lazy.flatMap({ $0 as? StatusViewController }).first!
     }()
     /// 一个串行队列用于协调从场景中添加或删除节点。
     let updateQueue = DispatchQueue(label: "serialSceneKitQueue")
@@ -55,15 +55,10 @@ class ARVC: UIViewController, ARSCNViewDelegate,UIPopoverPresentationControllerD
     var sendView:UploadView!
     let popover = Popover()
     
-    let online = UserDefaults.standard.bool(forKey: "online")
+    let online = true // Local publishing is always available; no account is needed.
     
     override func viewDidLoad() {
         super.viewDidLoad()
-        
-        let names = UIFont.familyNames
-        for i in 0..<names.count{
-            print("字体\(i)：\(names[i])")
-        }
         
         aligment()//设置UI细节
         //初始化弹框
@@ -76,8 +71,8 @@ class ARVC: UIViewController, ARSCNViewDelegate,UIPopoverPresentationControllerD
         focusSquare.unhide()
         
         //设置键盘弹出的动画
-        NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillShow(_:)), name: Notification.Name.UIKeyboardWillShow, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillHide(_:)), name: Notification.Name.UIKeyboardWillHide, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillShow(_:)), name: UIResponder.keyboardWillShowNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillHide(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
         
     }
     override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
@@ -107,10 +102,10 @@ class ARVC: UIViewController, ARSCNViewDelegate,UIPopoverPresentationControllerD
         
         isFSHidden = UserDefaults.standard.bool(forKey: "isFSHidden")
         if isFSHidden{
-            hiddenFSBtn.setImage(UIImage(named: "方块隐藏"), for: UIControlState.normal)
+            hiddenFSBtn.setImage(UIImage(named: "方块隐藏"), for: UIControl.State.normal)
             focusSquare.isHidden = true
         }else{
-            hiddenFSBtn.setImage(UIImage(named: "方块"), for: UIControlState.normal)
+            hiddenFSBtn.setImage(UIImage(named: "方块"), for: UIControl.State.normal)
             focusSquare.isHidden = false
         }
         //如果是从离线模式过来的，那么把返回按钮隐藏
@@ -122,76 +117,27 @@ class ARVC: UIViewController, ARSCNViewDelegate,UIPopoverPresentationControllerD
     func initSendView(){
         sendView = UploadView.newInstance(frame: CGRect(x: 0, y: 0, width: self.view.frame.width-100, height: 540))
         sendView.removeBtn.isHidden = true
-        sendView.publishBtn.addTarget(self, action: #selector(publishBtnClick), for: UIControlEvents.touchUpInside)
+        sendView.publishBtn.accessibilityLabel = "保存到本机"
+        sendView.publishBtn.isEnabled = true
+        sendView.publishBtn.addTarget(self, action: #selector(publishBtnClick), for: UIControl.Event.touchUpInside)
         //如果是离线模式，将发表按钮编程变成存储到相册按钮
         if !online{
             sendView.offlineMode()
-            sendView.saveBtn.addTarget(self, action: #selector(saveBtnClick), for: UIControlEvents.touchUpInside)
+            sendView.saveBtn.addTarget(self, action: #selector(saveBtnClick), for: UIControl.Event.touchUpInside)
         }
     }
-    @objc func publishBtnClick(){
+    @objc func publishBtnClick() {
         sendView.endEditing(true)
-        let object = AVObject(className: "Posts")
-        object["username"] = AVUser.current()?.username
-        object["ava"] = AVUser.current()?.value(forKey: "ava") as! AVFile
-        let uuid = NSUUID().uuidString
-        object["puuid"] = "\(AVUser.current()?.username)\(uuid)"
-        
-        //判断titleTxt是否为空
-        if sendView.titleTxt.text.isEmpty{
-            object["title"] = ""
-        }else{
-            object["title"] = sendView.titleTxt.text.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-        }
-        //生成照片数据
-        let imageData = UIImageJPEGRepresentation(sendView.picImg.image!, 0.5)
-        let imageFile = AVFile(name: "post.jpg", data: imageData!)
-        object["pic"] = imageFile
-        
-        //发hashtag到云端
-        let words:[String] = sendView.titleTxt.text.components(separatedBy: CharacterSet.whitespacesAndNewlines)
-        
-        for var word in words{
-            //定义正则表达式
-            let pattern = "#[^#]+"
-            let regular = try! NSRegularExpression(pattern: pattern, options: .caseInsensitive)
-            let results = regular.matches(in: word, options: .reportProgress, range: NSMakeRange(0, word.count))
-            
-            //输出截取结果
-            print("符合的结果有\(results.count)")
-            for result in results{
-                word = (word as NSString).substring(with: result.range)
-            }
-            if word.hasPrefix("#"){
-                word = word.trimmingCharacters(in: CharacterSet.punctuationCharacters)
-                word = word.trimmingCharacters(in: CharacterSet.symbols)
-                
-                let hashtagObj = AVObject(className: "Hashtags")
-                hashtagObj["to"] = "\(AVUser.current()?.username!)\(uuid)"
-                hashtagObj["by"] = AVUser.current()?.username!
-                hashtagObj["hashtag"] = word.lowercased()
-                hashtagObj["comment"] = sendView.titleTxt.text
-                hashtagObj["isPost"] = true
-                hashtagObj.saveInBackground({ (success:Bool, error:Error?) in
-                    if success{
-                        print("hashtag\(word)已被创建")
-                    }else{
-                        print(error?.localizedDescription)
-                    }
-                })
-            }
-        }
-        
-        //存储
-        object.saveInBackground { (success:Bool, error:Error?) in
-            if error == nil{
-                NotificationCenter.default.post(name: NSNotification.Name(rawValue:"uploaded"), object: nil)
-                self.popover.dismiss()
-                self.dismiss(animated: true, completion: nil)
-            }else{
-                print("上传错误\(error?.localizedDescription)")
-            }
-        }
+        guard let data = sendView.picImg.image?.jpegData(compressionQuality: 0.85) else { return }
+        do {
+            let realm = try Realm()
+            let artwork = LocalArtwork()
+            artwork.caption = sendView.titleTxt.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            artwork.imageData = data
+            try realm.write { realm.add(artwork) }
+            popover.dismiss()
+            dismiss(animated: true)
+        } catch { showStorageError(error) }
     }
     @objc func saveBtnClick(){
         sendView.endEditing(true)
@@ -267,10 +213,10 @@ class ARVC: UIViewController, ARSCNViewDelegate,UIPopoverPresentationControllerD
     }
     @IBAction func changeState(_ sender: UIButton) {
         if !isFSHidden{
-            sender.setImage(UIImage(named: "方块隐藏"), for: UIControlState.normal)
+            sender.setImage(UIImage(named: "方块隐藏"), for: UIControl.State.normal)
             isFSHidden = true
         }else{
-            sender.setImage(UIImage(named: "方块"), for: UIControlState.normal)
+            sender.setImage(UIImage(named: "方块"), for: UIControl.State.normal)
             isFSHidden = false
         }
         focusSquare.isHidden = isFSHidden
@@ -280,10 +226,9 @@ class ARVC: UIViewController, ARSCNViewDelegate,UIPopoverPresentationControllerD
         if sendView != nil{
             sendView.picImg.image = sceneView.snapshot().cropToSquare()
             sendView.titleTxt.text = ""
-            popover.show(sendView!, point: CGPoint(x: 752, y: 144))
-            if online{
-                sendView?.titleTxt.becomeFirstResponder()
-            }
+            sendView.frame = CGRect(x: 0, y: 0, width: min(420, view.bounds.width - 32), height: min(500, view.bounds.height - 120))
+            sendView.setNeedsLayout()
+            popover.showAsDialog(sendView, inView: view)
         }
     }
     @IBAction func cancelSnapshot(_ sender: UIButton) {
@@ -296,7 +241,7 @@ class ARVC: UIViewController, ARSCNViewDelegate,UIPopoverPresentationControllerD
         self.present(alert, animated: true, completion: nil)
     }
     @objc func keyboardWillShow(_ notification:Notification){
-        let rect = (notification.userInfo![UIKeyboardFrameEndUserInfoKey]) as! NSValue
+        let rect = (notification.userInfo![UIResponder.keyboardFrameEndUserInfoKey]) as! NSValue
         keyboard = rect.cgRectValue
         
         UIView.animate(withDuration: 0.4) {
@@ -321,7 +266,7 @@ class ARVC: UIViewController, ARSCNViewDelegate,UIPopoverPresentationControllerD
         navCtrl.popoverPresentationController?.sourceView = sender
         navCtrl.popoverPresentationController?.sourceRect = sender.bounds
         navCtrl.preferredContentSize = colorSelectionController.view.systemLayoutSizeFitting(
-            UILayoutFittingCompressedSize
+            UIView.layoutFittingCompressedSize
         )
         colorSelectionController.delegate = self
         colorSelectionController.color = UIColor.init(hexString: UserDefaults.standard.string(forKey: "defaultsColor")!)
@@ -329,7 +274,7 @@ class ARVC: UIViewController, ARSCNViewDelegate,UIPopoverPresentationControllerD
         if UIUserInterfaceSizeClass.compact == self.traitCollection.horizontalSizeClass {
             let doneBtn: UIBarButtonItem = UIBarButtonItem(
                 title: NSLocalizedString("Done", comment: ""),
-                style: UIBarButtonItemStyle.done,
+                style: UIBarButtonItem.Style.done,
                 target: self,
                 action: nil
             )
@@ -346,6 +291,7 @@ class ARVC: UIViewController, ARSCNViewDelegate,UIPopoverPresentationControllerD
         UIApplication.shared.isIdleTimerDisabled = true
         
         // 创建 session 配置（configuration）实例
+        guard ARWorldTrackingConfiguration.isSupported else { return }
         let configuration = ARWorldTrackingConfiguration()
         // 明确表示需要追踪水平面。设置后 scene 被检测到时就会调用 ARSCNViewDelegate 方法
         configuration.planeDetection = .horizontal
@@ -365,6 +311,7 @@ class ARVC: UIViewController, ARSCNViewDelegate,UIPopoverPresentationControllerD
         }
     }
     @IBAction func sendBtn(_ sender: Any) {
+        guard let position = focusSquare.lastPosition else { SVProgressHUD.showInfo(withStatus: "请先找到平面"); return }
         var text = (inputText.text?.isEmpty)! ? "无文字":inputText.text!
         text = text.replacingOccurrences(of: "\\n", with: "\n")
         let fontSize:CGFloat = CGFloat(UserDefaults.standard.float(forKey: "size"))
@@ -384,9 +331,9 @@ class ARVC: UIViewController, ARSCNViewDelegate,UIPopoverPresentationControllerD
         }
         let textFont = UIFont(name: fontTypeString, size: fontSize)
         let textDepth = UserDefaults.standard.float(forKey: "depth")
-        let textScn = ARText(text: text, font: textFont!, color: textColor, depth: CGFloat(textDepth)*(fontSize/10))
+        let textScn = ARText(text: text, font: textFont ?? UIFont.systemFont(ofSize: fontSize), color: textColor, depth: CGFloat(textDepth)*(fontSize/10))
         print("CGFloat(textDepth)*(fontSize/10):\(CGFloat(textDepth)*(fontSize/10))")
-        let textNode = TextNode(fsPosition: focusSquare.lastPosition!, scntext: textScn, sceneView: sceneView, scale: 1/100)
+        let textNode = TextNode(fsPosition: position, scntext: textScn, sceneView: sceneView, scale: 1/100)
         textNodes.append(textNode)
         //print("添加了第\(textNodes.count)个节点")
         self.sceneView.scene.rootNode.addChildNode(textNode)
@@ -403,7 +350,6 @@ class ARVC: UIViewController, ARSCNViewDelegate,UIPopoverPresentationControllerD
         box.firstMaterial?.normal.contents = UIImage(named: "Media.scnassets/scuffed-plastic-normal.png")
         box.firstMaterial?.ambientOcclusion.contents = UIImage(named: "Media.scnassets/scuffed-plastic-ao.png")
         let node = SCNNode(geometry: box)
-        let position = focusSquare.lastPosition!
         
         node.position = SCNVector3Make(position.x, position.y+Float(size/2), position.z)
         //self.sceneView.scene.rootNode.addChildNode(node)
@@ -448,6 +394,7 @@ class ARVC: UIViewController, ARSCNViewDelegate,UIPopoverPresentationControllerD
         super.viewWillDisappear(animated)
         // 暂停会话
         sceneView.session.pause()
+        UIApplication.shared.isIdleTimerDisabled = false
     }
     override func didReceiveMemoryWarning() {
         super.didReceiveMemoryWarning()

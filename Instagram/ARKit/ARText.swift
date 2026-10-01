@@ -36,8 +36,8 @@ class ARText:SCNText{
         self.extrusionDepth = depth
         self.font = font
         
-        self.alignmentMode = kCAAlignmentCenter
-        self.truncationMode = kCATruncationMiddle
+        self.alignmentMode = CATextLayerAlignmentMode.center.rawValue
+        self.truncationMode = CATextLayerTruncationMode.middle.rawValue
         self.firstMaterial?.isDoubleSided = true
         self.firstMaterial!.diffuse.contents = color
         self.firstMaterial?.lightingModel = .physicallyBased
